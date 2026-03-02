@@ -1,0 +1,88 @@
+from scipy.optimize import fsolve
+import matplotlib.pyplot as plt
+import numpy as np
+
+
+def circle_parabola(vals, x1=1.0, y1=0.0, r=4.0, a=0.5, b=1.0):
+    """
+    Two equations:
+      1) Circle: (x-x1)^2 + (y-y1)^2 = r^2
+      2) Parabola: y = a*x^2 + b
+
+    Return in f(x,y)=0 form as a tuple (f1, f2).
+    """
+    x, y = vals
+    f1 = (x - x1) ** 2 + (y - y1) ** 2 - r ** 2
+    f2 = a * x ** 2 + b - y
+    return (f1, f2)
+
+
+def get_float(prompt, default):
+    s = input(f"{prompt} (default {default}): ").strip()
+    return default if s == "" else float(s)
+
+
+def main():
+    print("\nPress Enter to accept defaults.\n")
+
+    # Defaults match the FSOLVE demo-style example (circle + parabola)
+    x1 = get_float("Enter circle center x1", 1.0)
+    y1 = get_float("Enter circle center y1", 0.0)
+    r = get_float("Enter circle radius r", 4.0)
+
+    a = get_float("Enter parabola width a", 0.5)
+    b = get_float("Enter parabola offset b", 1.0)
+
+    # --- Solve for intersection points using different initial guesses ---
+    # Usually there are two intersections; different guesses help fsolve find each.
+    guess_1 = (-3.0, 3.0)
+    guess_2 = (3.0, 3.0)
+
+    sol1 = fsolve(circle_parabola, guess_1, args=(x1, y1, r, a, b))
+    sol2 = fsolve(circle_parabola, guess_2, args=(x1, y1, r, a, b))
+
+    xA, yA = float(sol1[0]), float(sol1[1])
+    xB, yB = float(sol2[0]), float(sol2[1])
+
+    # If both guesses converge to the same root, try a different 2nd guess
+    if np.hypot(xA - xB, yA - yB) < 1e-6:
+        guess_2 = (6.0, 6.0)
+        sol2 = fsolve(circle_parabola, guess_2, args=(x1, y1, r, a, b))
+        xB, yB = float(sol2[0]), float(sol2[1])
+
+    # --- Print results ---
+    print("\nIntersection Points (circle & parabola):")
+    print(f"Point 1: x = {xA:.6f}, y = {yA:.6f}")
+    print(f"Point 2: x = {xB:.6f}, y = {yB:.6f}")
+
+    # --- Plot from -10 to 10 (as required) ---
+    xvals = np.linspace(-10, 10, 800)
+
+    # Parabola
+    y_parab = a * xvals**2 + b
+
+    # Circle (parametric)
+    t = np.linspace(0, 2 * np.pi, 800)
+    x_circ = x1 + r * np.cos(t)
+    y_circ = y1 + r * np.sin(t)
+
+    plt.figure()
+    plt.plot(x_circ, y_circ, label="Circle")
+    plt.plot(xvals, y_parab, label="Parabola")
+
+    # Mark intersection points
+    plt.plot([xA, xB], [yA, yB], marker='o', linestyle='None',
+             markerfacecolor='none', markeredgecolor='red', markersize=12,
+             label="Intersections")
+
+    plt.xlabel("x")
+    plt.ylabel("y")
+    plt.xlim(-10, 10)
+    plt.ylim(-10, 10)
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+
+
+if __name__ == "__main__":
+    main()
