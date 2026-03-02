@@ -1,3 +1,5 @@
+Landon Norris
+MAE 3403 HW4
 from scipy.optimize import fsolve
 import matplotlib.pyplot as plt
 import numpy as np
