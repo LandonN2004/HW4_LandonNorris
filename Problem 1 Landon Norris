@@ -1,0 +1,206 @@
+#region problem statement
+'''
+	(50 pts) Create a Python program that simulates an industrial-scale gravel production process where crushed rocks
+	are sieved through a pair of screens:  the first screen is a large aperture screen that excludes rocks above a
+	certain size and the second screen has a smaller aperture.  The product is the fraction of rocks from between the screens.
+
+Assumptions:
+	While the actual gavel is not spherical, we will assume that the rocks are spherical.
+	Prior to sieving, the gravel follows a log-normal distribution (i.e., loge(D) is N(μ,σ)), where D is the rock
+	diameter, μ=mean of ln(D) and σ= standard deviation of ln(D).  After sieving, the log-normal distribution is now
+	truncated to have a maximum (Dmax) and minimum size (Dmin) imposed by the aperture size of the screens.
+
+Your program should solicit input from the user (with suggested default values) μ, σ, Dmax and Dmin.  It should then
+produce 11 samples of N=100 rocks randomly selected from the truncated log-normal distribution and report to the user
+through the cli the sample mean (D̅) and variance (S2) of each sample as well as the mean and variance of the sampling mean.
+
+Note:
+The standard log-normal probability density function (PDF) is normalized over (0,∞) by:
+f\left(D\right)=\frac{1}{D\sigma\sqrt{2\pi}}e^{-\frac{\left(ln\left(D\right)-\mu\right)^2}{2\sigma^2}};\int_{0}^{\infty}f\left(D\right)dD=1
+
+And the normalized truncated log-normal PDF is given by:
+f_{trunc}\left(D\right)=\frac{f\left(D\right)}{F\left(D_{max}\right)-F\left(D_{min}\right)}
+
+Your grade will be based on your efficient use of imports of the allowed modules, use of functions and function calls,
+use of lists and list comprehensions, your clarity in your docstrings and comments and your overall approach to the
+problem.  Clearly state your assumptions in the docstring of the main function.
+'''
+#endregion
+
+"""
+Landon Norris
+MAE 3403 HW4 Problem 1
+Reworked version using:
+
+scipy.integrate.quad  -> replaces Simpson
+scipy.optimize.fsolve -> replaces Secant
+
+Simulates sieving gravel with truncated log-normal distribution.
+
+Outputs:
+• Mean and variance of each sample
+• Mean and variance of sampling means
+"""
+
+"""
+Landon Norris
+MAE 3403 HW4 - Problem 1 (SP26)
+
+Simulate an industrial gravel sieving process.
+Assume rock diameter D follows a log-normal distribution where ln(D) ~ N(mu, sigma).
+After sieving, the distribution is truncated to Dmin <= D <= Dmax.
+
+Program:
+- Prompts user for mu, sigma, Dmax, Dmin (with defaults)
+- Generates Nsamp = 11 samples, each with N = 100 rocks
+- Reports each sample mean (Dbar) and variance (S^2)
+- Reports mean and variance of the sampling mean
+
+Method requirements:
+- Use scipy.integrate.quad (instead of Simpson)
+- Use scipy.optimize.fsolve (instead of Secant)
+"""
+
+import math
+import numpy as np
+from random import random
+from scipy.integrate import quad
+from scipy.optimize import fsolve
+
+
+# ----------------------------
+# Core distribution functions
+# ----------------------------
+
+def lognormal_pdf(D: float, mu: float, sigma: float) -> float:
+    """Standard log-normal PDF over (0, ∞)."""
+    if D <= 0:
+        return 0.0
+    return (1.0 / (D * sigma * math.sqrt(2.0 * math.pi))) * math.exp(
+        -((math.log(D) - mu) ** 2) / (2.0 * sigma ** 2)
+    )
+
+
+def F_standard(D: float, mu: float, sigma: float) -> float:
+    """Standard log-normal CDF F(D) computed by quad from 0 to D."""
+    if D <= 0:
+        return 0.0
+    val, _ = quad(lambda x: lognormal_pdf(x, mu, sigma), 0.0, D)
+    return val
+
+
+def trunc_norm_constants(mu: float, sigma: float, Dmin: float, Dmax: float) -> tuple[float, float]:
+    """Compute F(Dmin) and F(Dmax) for normalization via quad."""
+    Fmin = F_standard(Dmin, mu, sigma)
+    Fmax = F_standard(Dmax, mu, sigma)
+    return Fmin, Fmax
+
+
+def trunc_lognormal_cdf(D: float, mu: float, sigma: float, Dmin: float, Dmax: float, Fmin: float, Fmax: float) -> float:
+    """
+    Truncated log-normal CDF over [Dmin, Dmax], normalized to range [0, 1].
+    Uses quad for integration.
+    """
+    if D <= Dmin:
+        return 0.0
+    if D >= Dmax:
+        return 1.0
+
+    denom = (Fmax - Fmin)
+    if denom <= 0:
+        raise ValueError("Invalid truncation: F(Dmax) - F(Dmin) must be > 0.")
+
+    # Integrate standard PDF from Dmin to D, then normalize by (Fmax - Fmin)
+    numer, _ = quad(lambda x: lognormal_pdf(x, mu, sigma), Dmin, D)
+    return numer / denom
+
+
+# ----------------------------
+# Sampling + stats
+# ----------------------------
+
+def generate_sample(mu: float, sigma: float, Dmin: float, Dmax: float, Fmin: float, Fmax: float, N: int) -> np.ndarray:
+    """
+    Generate N rocks from truncated log-normal using inverse transform:
+    solve truncCDF(D) = U with fsolve, where U ~ Uniform(0,1).
+    """
+    U = [random() for _ in range(N)]
+
+    def solve_one(u: float) -> float:
+        # Good initial guess: linear map into [Dmin, Dmax]
+        x0 = Dmin + u * (Dmax - Dmin)
+        root = fsolve(
+            lambda d: trunc_lognormal_cdf(d, mu, sigma, Dmin, Dmax, Fmin, Fmax) - u,
+            x0
+        )[0]
+        return float(root)
+
+    return np.array([solve_one(u) for u in U], dtype=float)
+
+
+def sample_mean_and_var(x: np.ndarray) -> tuple[float, float]:
+    """Return sample mean and unbiased sample variance (ddof=1)."""
+    return float(np.mean(x)), float(np.var(x, ddof=1))
+
+
+# ----------------------------
+# Main CLI
+# ----------------------------
+
+def main():
+    # Suggested defaults (the attached example uses these)
+    mu_default = math.log(2.0)
+    sigma_default = 1.0
+    Dmax_default = 1.0
+    Dmin_default = 3.0 / 8.0
+
+    Nsamp = 11
+    N = 100
+
+    print("\nPress Enter to accept defaults.\n")
+
+    mu = float(input(f"Enter mu (mean of ln(D)) [{mu_default}]: ") or mu_default)
+    sigma = float(input(f"Enter sigma (std dev of ln(D)) [{sigma_default}]: ") or sigma_default)
+    Dmax = float(input(f"Enter Dmax (large aperture size) [{Dmax_default}]: ") or Dmax_default)
+    Dmin = float(input(f"Enter Dmin (small aperture size) [{Dmin_default}]: ") or Dmin_default)
+
+    if sigma <= 0:
+        raise ValueError("sigma must be > 0.")
+    if Dmin <= 0 or Dmax <= 0:
+        raise ValueError("Dmin and Dmax must be > 0.")
+    if Dmin >= Dmax:
+        raise ValueError("Dmin must be < Dmax.")
+
+    # Normalization constants using quad
+    Fmin, Fmax = trunc_norm_constants(mu, sigma, Dmin, Dmax)
+
+    print("\n==============================")
+    print("Truncated Log-Normal Sampling")
+    print("==============================")
+    print(f"mu   = {mu}")
+    print(f"sigma= {sigma}")
+    print(f"Dmin = {Dmin}")
+    print(f"Dmax = {Dmax}")
+    print(f"Nsamp= {Nsamp}")
+    print(f"N    = {N}")
+
+    sample_means = []
+
+    print("\nSample Results (Dbar, S^2)")
+    for i in range(1, Nsamp + 1):
+        samp = generate_sample(mu, sigma, Dmin, Dmax, Fmin, Fmax, N)
+        dbar, s2 = sample_mean_and_var(samp)
+        sample_means.append(dbar)
+        print(f"Sample {i:2d}:  Dbar = {dbar:.6f}   S^2 = {s2:.6f}")
+
+    sample_means = np.array(sample_means, dtype=float)
+    mean_of_means = float(np.mean(sample_means))
+    var_of_means = float(np.var(sample_means, ddof=1))
+
+    print("\nSampling Mean Stats")
+    print(f"Mean of sampling means     = {mean_of_means:.6f}")
+    print(f"Variance of sampling means = {var_of_means:.6f}")
+
+
+if __name__ == "__main__":
+    main()
